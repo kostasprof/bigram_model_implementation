@@ -134,8 +134,27 @@ def evaluation(test,probs):
             
     return name,total_probability
 
-def negative_log_likelyhood(test,probs):
-    pass
+'''
+method that will compute the negative log likelihood for the model's predictions
+'''
+def negative_log_likelihood(test,probs):
+    total = 0
+    transitions = 0
+    
+    for name in test:
+        for i in range(len(name)):
+            # add start and end character bigrams to the total
+            if i == 0:
+                total += -math.log(probs[("<start>",name[i])])
+                transitions += 1
+            elif i == len(name)-1:
+                total += -math.log(probs[(name[i],"<end>")])
+                transitions += 1
+                break
+            # calculate all probabilities inside a negative log and add to the total
+            total += -math.log(probs[(name[i],name[i+1])])
+            transitions += 1
+    return total/transitions
     
 def main():
     
@@ -144,9 +163,9 @@ def main():
     pairs = get_pairs(train)
     probabilities = calculate_probabilities(count_bigrams(pairs))
     #check_probabilities(probabilities)
-    for i in range(10):
-        name,probability = evaluation(test,probabilities)
-        print(f"Name:{name}, probability:{probability}")
-
+    # for i in range(10):
+    #     name,probability = evaluation(test,probabilities)
+    #     print(f"Name:{name}, probability:{probability}")
+    print(f"The NLL score is: {negative_log_likelihood(test,probabilities)}")
 if __name__ == "__main__":
     main()
