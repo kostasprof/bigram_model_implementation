@@ -28,13 +28,19 @@ def get_pairs(names):
     for name in names:
         # get the first letter ,with the start word token, and the bigrams's count in the dictionary
         for i in range(len(name)):
-            if i == 0:
-                letter_bigrams.append(("<start>", name[0]))
-            elif i == len(name)-1:
-                letter_bigrams.append((name[i], "<end>"))
-                break
-            letter_bigrams.append((name[i], name[i+1]))
             
+            if len(name) != 1:
+                if i == 0:
+                    letter_bigrams.append(("<start>", name[0]))
+                elif i == len(name)-1:
+                    letter_bigrams.append((name[i], "<end>"))
+                    break
+                letter_bigrams.append((name[i], name[i+1]))
+            else:
+                # if a name is a single character just keep the transitions <start>,char,<end>
+                letter_bigrams.append(("<start>", name[0]))
+                letter_bigrams.append((name[0], "<end>"))
+                
     return letter_bigrams
 
 # create a dictionary to store letter bigrams and their counts
@@ -80,8 +86,7 @@ def calculate_probabilities(bigrams):
             probabilities[b] = (count+1)/(letter_counts[b[0]]+26)
     return probabilities
 
-# we run this to check that if we add all the probabilities of one starting letter add
-# up to 1
+# we run this to check that if we add all the probabilities of one "family" is equal to 1
 def check_probabilities(probs):
     total = 0
     keys = set() 
@@ -142,17 +147,19 @@ def negative_log_likelihood(test,probs):
     transitions = 0
     
     for name in test:
+        
         for i in range(len(name)):
             # add start and end character bigrams to the total
             if i == 0:
                 total += -math.log(probs[("<start>",name[i])])
                 transitions += 1
-            elif i == len(name)-1:
+            if i == len(name)-1:
                 total += -math.log(probs[(name[i],"<end>")])
                 transitions += 1
                 break
             # calculate all probabilities inside a negative log and add to the total
             total += -math.log(probs[(name[i],name[i+1])])
+                
             transitions += 1
     return total/transitions
     
@@ -160,12 +167,22 @@ def main():
     
     print("Bigram Language Model")
     train,test = handle_input()
+    print(f"Train dataset names: {len(train)} Test dataset names: {len(test)}")
     pairs = get_pairs(train)
     probabilities = calculate_probabilities(count_bigrams(pairs))
-    #check_probabilities(probabilities)
-    # for i in range(10):
-    #     name,probability = evaluation(test,probabilities)
-    #     print(f"Name:{name}, probability:{probability}")
+    
+    for i in range(10):
+        print(f"Generated name:{generate_names(probabilities)}")
+        
+    #run this to see if the probabilities of a family add up to one
+    ##check_probabilities(probabilities)
+    
+    #run this to check for probability of name in a test dataset
+    ##for i in range(10):
+    ##     name,probability = evaluation(test,probabilities)
+    ##     print(f"Name:{name}, probability:{probability}")
+    
     print(f"The NLL score is: {negative_log_likelihood(test,probabilities)}")
+    
 if __name__ == "__main__":
     main()
