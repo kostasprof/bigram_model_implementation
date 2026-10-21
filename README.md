@@ -126,8 +126,7 @@ The samples show the typical bigram behavior: some outputs look like plausible n
 - **One character of context.** A bigram model only sees the previous letter, so it can't capture longer patterns like common suffixes or syllables. Generated names are often name-like but not always pronounceable.
 - **Training-set vocabulary.** Smoothing is applied over the fixed alphabet, not a vocabulary learned from the data.
 
-## Possible extensions
+## The Next Step
 
-- Trigram or higher-order n-gram models
-- Tuning the smoothing strength (add-k instead of add-one)
 - Replacing the lookup tables with a small neural network trained on the same task
+

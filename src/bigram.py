@@ -4,9 +4,10 @@ from collections import defaultdict
 import math
 import numpy as np
 import string
+import neural_bigram
 from sklearn.model_selection import train_test_split
 
-DATA_PATH = Path("data/names.txt")
+DATA_PATH = Path(r"D:\Coding\bigram_implementation\data\names.txt")
 
 
 '''
@@ -26,7 +27,7 @@ def handle_input():
 def get_pairs(names):
     letter_bigrams = []
     for name in names:
-        # get the first letter ,with the start word token, and the bigrams's count in the dictionary
+        # get the first letter ,with the start word token
         for i in range(len(name)):
             
             if len(name) != 1:
@@ -183,6 +184,8 @@ def main():
     ##     print(f"Name:{name}, probability:{probability}")
     
     print(f"The NLL score is: {negative_log_likelihood(test,probabilities)}")
+    positions,destinations = neural_bigram.pairs_to_integers(pairs)
+    print(neural_bigram.model(positions,destinations))
     
 if __name__ == "__main__":
     main()
