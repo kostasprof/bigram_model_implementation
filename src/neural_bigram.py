@@ -36,7 +36,7 @@ def pairs_to_integers(pairs):
 training function
 '''
 
-def model(position,destination,weights):
+def train(position,destination,weights):
     
     #turn the lists into tensors and then make all numbers into one-hot vectors (e.g. 00000010000)
     position_tensor = torch.tensor(position)
@@ -47,7 +47,7 @@ def model(position,destination,weights):
     for epoch in range(1000):
         
         logits = position_tensor @ weights
-        loss = fu.cross_entropy(logits,destination_tensor)
+        loss = fu.cross_entropy(logits, destination_tensor) + 0.01 * (weights ** 2).mean()
         
         if weights.grad is not None:
             weights.grad.zero_()
@@ -65,23 +65,34 @@ def model(position,destination,weights):
     return weights
 
 #function to generate a name
+@torch.no_grad()
 def generate(weights):
-    name = [26]
-    curr_letter = torch.tensor(26)
+    name = []
+    curr = 26  # <start>
+
     while True:
-        
-        curr_letter = fu.one_hot(curr_letter,num_classes=28).float()
-        logits = curr_letter @ weights
-        probs = fu.softmax(logits,dim=0)
-        next_letter = torch.multinomial(probs, num_samples=1).item()
-        name.append(next_letter)
-        
-        #if we find the "<end>" token we break
-        if next_letter == 27:
+        logits = weights[curr].clone()
+
+        #nothing can ever transition INTO <start>
+        logits[26] = float("-inf")
+        #an empty name (<start> -> <end>) is not allowed either
+        if curr == 26:
+            logits[27] = float("-inf")
+
+        probs = fu.softmax(logits, dim=0)
+        curr = torch.multinomial(probs, num_samples=1).item()
+
+        if curr == 27:  #<end>
             break
-        curr_letter = torch.tensor(next_letter)
-        
+        name.append(curr)
+
     return name
+
+@torch.no_grad()
+def evaluate(position, destination, weights):
+    """Average negative log likelihood per transition (same metric as the counting model)."""
+    logits = weights[torch.tensor(position)]   # row lookup == one_hot @ weights
+    return fu.cross_entropy(logits, torch.tensor(destination)).item()
 
 def decode_names(name):
     alphabet = string.ascii_lowercase

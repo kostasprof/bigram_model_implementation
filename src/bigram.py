@@ -8,7 +8,7 @@ import neural_bigram as neural
 import torch
 from sklearn.model_selection import train_test_split
 
-DATA_PATH = Path(r"D:\Coding\bigram_implementation\data\names.txt")
+DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "names.txt"
 
 
 '''
@@ -186,17 +186,21 @@ def main():
     
     print(f"The NLL score is: {negative_log_likelihood(test,probabilities)}")
     
-    #Neural network
-    positions,destinations = neural.pairs_to_integers(pairs)
+    # Neural network
+    positions, destinations = neural.pairs_to_integers(pairs)
     weights = torch.randn((28, 28), requires_grad=True)
-    
-    #train
-    trained_weights = neural.model(positions,destinations,weights)
-    #generate a name
-    name_code = neural.generate(trained_weights)
-    #decode it
-    name = neural.decode_names(name_code)
-    print(f"Name generated:{name}")
+    trained_weights = neural.train(positions, destinations, weights)
+
+    # evaluate on the SAME held-out names the counting model used
+    test_pairs = get_pairs(test)
+    test_pos, test_dst = neural.pairs_to_integers(test_pairs)
+
+    print(f"Counting model test NLL: {negative_log_likelihood(test, probabilities):.4f}")
+    print(f"Neural model   test NLL: {neural.evaluate(test_pos, test_dst, trained_weights):.4f}")
+    print(f"Neural model  train NLL: {neural.evaluate(positions, destinations, trained_weights):.4f}")
+
+    name = neural.decode_names(neural.generate(trained_weights))
+    print(f"Name generated: {name}")
     
 if __name__ == "__main__":
     main()
