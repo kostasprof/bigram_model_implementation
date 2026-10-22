@@ -25,9 +25,9 @@ It covers conditional probabilities, Laplace smoothing, one-hot encoding, cross-
 A bigram language model predicts the next character from the current character alone. By learning which character pairs are common in names, it can generate new sequences that resemble the training data.
 
 - **Statistical model:** estimates transition probabilities from counts and applies Laplace smoothing so unseen transitions keep a small non-zero probability.
-- **Neural model:** learns a $28 \times 28$ weight matrix with gradient descent on a cross-entropy loss.
+- **Neural model:** learns a $28 \times 28$ weight matrix with gradient descent on a cross-entropy loss with an L2 penalty.
 
-Both models are trained on the same training names and evaluated on the same held-out test names, so their NLL scores can be compared directly.
+Both models are trained on the same training names and evaluated on the same held-out test names.
 
 ## Dataset and Preprocessing
 
@@ -56,12 +56,20 @@ The project uses `names.txt` from Andrej Karpathy's [makemore repository](https:
 
 ### Valid transitions
 
-Two kinds of transition are impossible and are excluded from every probability distribution in both models:
+Two kinds of transition are impossible in this setup:
 
 - No token can transition **into** $\langle s \rangle$.
 - $\langle s \rangle \to \langle e \rangle$ is forbidden, because empty names are not allowed.
 
 Nothing leaves $\langle e \rangle$, since a name ends there.
+
+How each model handles these restrictions differs, and the difference matters when comparing their scores (see [Evaluation](#evaluation)):
+
+| Stage | Statistical model | Neural model |
+|---|---|---|
+| Probability table / training | invalid transitions excluded | **not** excluded (softmax over all 28 tokens) |
+| Evaluation | invalid transitions excluded | **not** excluded (softmax over all 28 tokens) |
+| Generation | invalid transitions excluded | invalid transitions masked |
 
 ## 1. Statistical Bigram Model
 
@@ -105,7 +113,7 @@ K_a =
 \end{cases}
 $$
 
-Using $K_a$ in the denominator guarantees that $\sum_{b} P(b \mid a) = 1$ over the valid next tokens of each $a$. The program includes a check (`check_probabilities`) that verifies this for every row.
+Using $K_a$ in the denominator guarantees that $\sum_{b} P(b \mid a) = 1$ over the valid next tokens of each $a$. The function `check_probabilities` verifies this for every row.
 
 ### Name generation
 
@@ -119,33 +127,17 @@ Each of the 28 tokens is mapped to an integer (`a`-`z` are 0-25, `<start>` is 26
 
 ### Architecture
 
-The model is a single trainable matrix $W \in \mathbb{R}^{28 \times 28}$. The logits for the next token are
+The model is a single trainable matrix $W \in \mathbb{R}^{28 \times 28}$, initialised from a standard normal distribution. The logits for the next token are
 
 $$
 z = x_a^{\top} W
 $$
 
-which is simply row $a$ of $W$.
-
-### Masking invalid transitions
-
-Let $\mathcal{I}$ be the set of invalid transitions defined above. Before the softmax, invalid destinations are set to $-\infty$:
+which is simply row $a$ of $W$. During training and evaluation these are converted to probabilities with a softmax over **all 28 tokens**:
 
 $$
-\tilde{z}_b =
-\begin{cases}
--\infty & \text{if } (a,b) \in \mathcal{I} \\
-z_b & \text{otherwise}
-\end{cases}
+P_W(b \mid a) = \frac{\exp(z_b)}{\sum_{j \in V} \exp(z_j)}
 $$
-
-so that
-
-$$
-P_W(b \mid a) = \frac{\exp(\tilde{z}_b)}{\sum_{j \in V} \exp(\tilde{z}_j)}
-$$
-
-assigns probability exactly zero to every invalid destination. The same mask is applied in **training**, **evaluation** and **generation**. This keeps the neural model's probability distribution consistent with the statistical model's, so the two NLL scores measure the same thing.
 
 ### Training
 
@@ -155,7 +147,7 @@ $$
 L(W) = -\frac{1}{N} \sum_{(a,b) \in \mathcal{T}} \ln P_W(b \mid a) \; + \; \lambda \cdot \frac{1}{28^2} \sum_{i,j} W_{ij}^2
 $$
 
-The first term is the training NLL. The second is `mean(W**2)` scaled by the regularisation strength $\lambda$.
+The first term is the training NLL. The second is `mean(W**2)` scaled by $\lambda = 0.01$.
 
 Gradients are computed with PyTorch autograd and the weights are updated manually with plain gradient descent:
 
@@ -163,11 +155,21 @@ $$
 W \leftarrow W - \eta \, \nabla_W L(W)
 $$
 
-Training uses learning rate $\eta = 50$ for 1,000 epochs, with every training transition processed in a single full batch. The training log prints the unregularised NLL so that it is directly comparable to the evaluation numbers.
+Training uses learning rate $\eta = 50$ for 1,000 epochs, with every training transition processed in one full batch. The training log prints $L(W)$ (the **regularised** objective, including the penalty) every 10 epochs.
 
 ### Name generation
 
-Generation starts at $\langle s \rangle$ and repeatedly samples the next token from $P_W(\cdot \mid a)$, with invalid transitions masked, until $\langle e \rangle$ is drawn.
+Generation starts at $\langle s \rangle$. At each step the logits of impossible destinations are set to $-\infty$ before the softmax, so the remaining probabilities are renormalised over the valid next tokens only:
+
+$$
+P_{\text{gen}}(b \mid a) =
+\begin{cases}
+\dfrac{\exp(z_b)}{\sum_{j \,:\, (a,j) \text{ valid}} \exp(z_j)} & \text{if } (a,b) \text{ is valid} \\[2ex]
+0 & \text{otherwise}
+\end{cases}
+$$
+
+The next token is then sampled from this distribution, and generation stops when $\langle e \rangle$ is drawn. The decoded name excludes the special tokens.
 
 ## Evaluation
 
@@ -177,15 +179,17 @@ $$
 \mathrm{NLL} = -\frac{1}{N} \sum_{(a,b) \in \mathcal{T}} \ln P(b \mid a)
 $$
 
-where $\mathcal{T}$ contains every transition of every test name, **including** the $\langle s \rangle \to$ first-letter and last-letter $\to \langle e \rangle$ transitions. For a name with $L$ letters this adds $L + 1$ terms.
+where $\mathcal{T}$ contains every transition of every test name, **including** the $\langle s \rangle \to$ first-letter and last-letter $\to \langle e \rangle$ transitions. For a name with $L$ letters this adds $L + 1$ terms. The statistical model computes this with `negative_log_likelihood`, and the neural model with `evaluate`, which is the cross-entropy of the learned rows on the same test transitions.
 
-A lower NLL means the model assigns higher probability to the transitions actually observed. As a reference point, guessing uniformly among 27 tokens would score $\ln 27 \approx 3.30$.
+A lower NLL means the model assigns higher probability to the observed transitions. As a reference point, guessing uniformly among 27 tokens would score $\ln 27 \approx 3.30$.
 
-> **Compare models using test NLL, not the training objective.** The training objective includes the L2 penalty and is therefore larger than the pure training NLL.
+> **Compare models using test NLL, not the training objective.** The training objective includes the L2 penalty, so it is larger than the pure training NLL.
+
+> **Caveat: the two scores are not perfectly like-for-like.** The statistical model's probabilities only cover valid transitions, but the neural model's softmax spreads probability over all 28 outputs during training and evaluation, including transitions that can never occur. Only generation applies the validity mask. Masking the logits before the cross-entropy in training and evaluation would remove this difference (see [Possible Improvements](#limitations-and-possible-improvements)).
 
 ## Results
 
-> **Note:** the numbers below come from a run made *before* the transition mask was applied to neural training and evaluation. Re-run the program and update this section; with the mask in place the comparison is like-for-like.
+The following results come from one execution of the program, with $\lambda = 0.01$.
 
 ### Model comparison
 
@@ -195,11 +199,22 @@ A lower NLL means the model assigns higher probability to the transitions actual
 | Neural ($\lambda = 0.01$) | Test | 2.4587 |
 | Neural ($\lambda = 0.01$) | Training | 2.4614 |
 
-In this run the statistical model had a slightly lower test NLL. A bigram model has only a few hundred free parameters and is trained on about 23,000 names, so there is very little overfitting for regularisation to prevent. The neural model converges towards the same transition table the counts give directly, and the L2 penalty only pulls its probabilities slightly towards uniform. A neural model is not automatically better than a simple statistical baseline.
+The statistical model had a slightly lower test NLL, by about 0.006. Because of the evaluation caveat above, and because these come from a single run, this gap should not be over-interpreted. The neural model has only 784 parameters and is trained on about 23,000 names, so there is very little overfitting for regularisation to prevent. It converges towards the same transition table the counts give directly, and the L2 penalty only pulls its probabilities slightly towards uniform.
+
+### Effect of the regularisation strength
+
+Changing $\lambda$ in `train()` and rerunning gave:
+
+| $\lambda$ | Neural test NLL | Neural train NLL |
+|---|---:|---:|
+| 0.001 | 2.4539 | 2.4564 |
+| 0.01 | 2.4587 | 2.4614 |
+
+The weaker penalty was closer to the statistical model's 2.4530. With this much data, a larger $\lambda$ mainly adds bias.
 
 ### Neural training progress
 
-Regularised objective ($L(W)$, including the L2 penalty) from the same run:
+Regularised objective $L(W)$ for the $\lambda = 0.01$ run:
 
 | Epoch | Objective |
 |---|---:|
@@ -208,7 +223,7 @@ Regularised objective ($L(W)$, including the L2 penalty) from the same run:
 | 500 | 2.4823 |
 | 990 | 2.4819 |
 
-The objective falls quickly in the first few dozen epochs and then flattens, indicating convergence.
+The objective falls quickly in the first few dozen epochs and then flattens, indicating convergence. These values include the L2 penalty (about 0.02 at this $\lambda$) and are not the same as the training NLL in the table above.
 
 ## Example Generated Names
 
@@ -254,6 +269,9 @@ bigram_model_implementation/
 └── README.md
 ```
 
+- `bigram.py`: data loading, bigram counting, Laplace-smoothed probabilities, name generation, NLL evaluation, and the `main()` entry point that also runs the neural model.
+- `neural_bigram.py`: integer encoding, neural training, name generation, evaluation and decoding.
+
 ## Installation and Usage
 
 ### 1. Clone the repository
@@ -277,15 +295,13 @@ Download `names.txt` from the [original source](https://github.com/karpathy/make
 data/names.txt
 ```
 
-### 4. Dataset path
-
-`src/bigram.py` locates the data relative to the script, so it runs from any working directory:
+The script finds it relative to its own location, so it works from any working directory:
 
 ```python
 DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "names.txt"
 ```
 
-### 5. Run
+### 4. Run
 
 From the repository root:
 
@@ -297,21 +313,22 @@ The program will:
 
 1. Load, deduplicate and split the dataset.
 2. Build the bigram counts and Laplace-smoothed probabilities.
-3. Generate example names with the statistical model.
-4. Compute the statistical model's test NLL.
-5. Train the neural model and print its training progress.
-6. Evaluate the neural model on the training and test transitions.
-7. Generate a name with the trained neural model.
+3. Generate 10 example names with the statistical model.
+4. Print the statistical model's test NLL.
+5. Train the neural model, printing its regularised objective every 10 epochs.
+6. Print the statistical test NLL, the neural test NLL and the neural training NLL.
+7. Generate one name with the trained neural model.
 
 ## Limitations and Possible Improvements
 
-- Each prediction depends only on the previous character, so longer-range structure cannot be captured.
-- The L2 penalty is not equivalent to Laplace smoothing. Try $\lambda = 0$ and compare it with the statistical model; with this much data the two should be very close.
-- Results come from a single random initialisation and a single split. Averaging over several seeds would show how much of the gap between models is noise.
-- Report perplexity, $\exp(\mathrm{NLL})$, alongside NLL.
-- Tune the learning rate and number of epochs, or switch to mini-batches and an optimiser such as Adam.
-- Extend to trigram models or a neural model with a longer context window.
+- **Single-character context.** Each prediction depends only on the previous character, so longer-range structure cannot be captured.
+- **Mask not applied in neural training and evaluation.** Only `generate()` blocks impossible transitions. Setting those logits to $-\infty$ before the cross-entropy in `train()` and `evaluate()` would make the neural model's NLL directly comparable to the statistical model's.
+- **L2 is not Laplace smoothing.** $\lambda$ is hardcoded to 0.01. Try $\lambda = 0$ and a small sweep; with this much data the best neural result should sit very close to the statistical model.
+- **Single run.** There are no random seeds and results come from one initialisation and one split. Averaging over several seeds would show how much of the gap between models is noise.
+- **Metrics.** Report perplexity, $\exp(\mathrm{NLL})$, alongside NLL.
+- **Optimisation.** Tune the learning rate and epoch count, or use mini-batches and an optimiser such as Adam.
+- **Richer models.** Extend to trigrams or a neural model with a longer context window.
 
 ## Key Takeaways
 
-Counting and gradient descent arrive at essentially the same bigram distribution: the neural model learns, by optimisation, the transition table that the statistical model computes directly. Enforcing the same valid-transition constraints in training, evaluation and generation is what makes their NLL scores comparable. A simple, well-smoothed baseline is a strong reference point, and a more complex model has to beat it on held-out data to justify its complexity.
+Counting and gradient descent arrive at nearly the same bigram distribution: the neural model learns by optimisation the transition table that the statistical model computes directly. A simple, well-smoothed baseline is a strong reference point, and a more complex model has to beat it on held-out data to justify its complexity. The comparison also shows why evaluation needs to be consistent: the two models should be scored over the same set of valid transitions before drawing conclusions from small differences in NLL.
