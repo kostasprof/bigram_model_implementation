@@ -4,7 +4,8 @@ from collections import defaultdict
 import math
 import numpy as np
 import string
-import neural_bigram
+import neural_bigram as neural
+import torch
 from sklearn.model_selection import train_test_split
 
 DATA_PATH = Path(r"D:\Coding\bigram_implementation\data\names.txt")
@@ -184,8 +185,18 @@ def main():
     ##     print(f"Name:{name}, probability:{probability}")
     
     print(f"The NLL score is: {negative_log_likelihood(test,probabilities)}")
-    positions,destinations = neural_bigram.pairs_to_integers(pairs)
-    print(neural_bigram.model(positions,destinations))
+    
+    #Neural network
+    positions,destinations = neural.pairs_to_integers(pairs)
+    weights = torch.randn((28, 28), requires_grad=True)
+    
+    #train
+    trained_weights = neural.model(positions,destinations,weights)
+    #generate a name
+    name_code = neural.generate(trained_weights)
+    #decode it
+    name = neural.decode_names(name_code)
+    print(f"Name generated:{name}")
     
 if __name__ == "__main__":
     main()
