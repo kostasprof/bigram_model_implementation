@@ -1,132 +1,70 @@
 # Character-Level Bigram Language Model
 
-A from-scratch bigram language model that learns which letters tend to follow which other letters in a list of names, then uses those statistics to score and generate names. Probabilities are estimated by counting, with Laplace (add-one) smoothing so unseen letter pairs never get zero probability.
+This project implements and compares two character-level bigram language models for generating names: a statistical model based on character frequencies and a neural model implemented with PyTorch.
 
-## How it works
+The project explores conditional probabilities, Laplace smoothing, neural network training, stochastic text generation, and model evaluation using negative log-likelihood (NLL).
 
-1. **Load and split the data** (`handle_input`)
-   Names are read from `data/names.txt`, stripped of newlines, de-duplicated, and split 80/20 into train and test sets (`random_state=42` for reproducibility).
+## Table of Contents
 
-2. **Extract bigrams** (`get_pairs`)
-   Each name is wrapped with special tokens, so `ana` becomes the transitions `<start>→a`, `a→n`, `n→a`, `a→<end>`. Single-letter names produce `<start>→x` and `x→<end>`.
+- [Overview](#overview)
+- [Dataset and Preprocessing](#dataset-and-preprocessing)
+- [Statistical Bigram Model](#1-statistical-bigram-model)
+- [Neural Bigram Model](#2-neural-bigram-model)
+- [Results](#results)
+- [Example Generated Names](#example-generated-names)
+- [Technologies Used](#technologies-used)
+- [Project Structure](#project-structure)
+- [Installation and Usage](#installation-and-usage)
+- [Limitations and Possible Improvements](#limitations-and-possible-improvements)
+- [Key Takeaways](#key-takeaways)
 
-3. **Count bigrams** (`count_bigrams`)
-   Counts how often each `(current, next)` pair appears in the training set.
+## Overview
 
-4. **Compute probabilities with Laplace smoothing** (`calculate_probabilities`)
-   For a pair `(a, b)`:
+A bigram language model predicts the next character based on the current character. By learning which character pairs frequently occur in names, the model can generate new character sequences that resemble the training data.
 
-   ```
-   P(b | a) = (count(a, b) + 1) / (count(a) + V)
-   ```
+This project implements two approaches to the same task:
 
-   where `count(a)` is the total number of bigrams starting with `a`, and `V` is the number of valid next tokens:
+- **Statistical Bigram Model:** Calculates character-transition probabilities from observed frequencies and applies Laplace smoothing to handle unseen transitions.
+- **Neural Bigram Model:** Learns character-transition probabilities using a trainable weight matrix, one-hot encoded inputs, cross-entropy loss, and gradient-based optimisation.
 
-   | Current token | Valid next tokens | `V` |
-   |---|---|---|
-   | a–z | a–z and `<end>` | 27 |
-   | `<start>` | a–z only (an empty name `<start>→<end>` is not allowed) | 26 |
-   | `<end>` | none (never a source) | n/a |
+Both models use the same training and test datasets, allowing their performance to be examined using negative log-likelihood.
 
-   Every pair that is valid but never seen in training is added with a count of 0, so it still receives a small non-zero probability.
+## Dataset and Preprocessing
 
-5. **Generate names** (`generate_names`)
-   Starting at `<start>`, repeatedly sample the next character from the learned distribution until `<end>` is drawn.
+The project uses the `names.txt` dataset from Andrej Karpathy's [makemore repository](https://github.com/karpathy/makemore/blob/master/names.txt).
 
-6. **Evaluate** (`negative_log_likelihood`)
-   Reports the average negative log likelihood (NLL) per transition over the test set. Lower is better.
+The original file contains **32,033 entries**. The following preprocessing steps are applied:
 
-## Project structure
+1. Load the names from the text file.
+2. Remove duplicate names.
+3. Split the unique names into training and testing sets using an 80/20 split.
+4. Use `random_state=42` to make the split reproducible.
 
+After removing duplicates, the dataset contains **29,494 unique names**.
+
+| Dataset | Number of names |
+|---|---:|
+| Training set | 23,595 |
+| Test set | 5,899 |
+| Total unique names | 29,494 |
+
+The training set is used to learn the character-transition probabilities and train the neural model. The held-out test set is used to evaluate both approaches.
+
+## 1. Statistical Bigram Model
+
+The statistical model estimates transition probabilities directly from character-pair frequencies in the training dataset.
+
+### Bigram construction
+
+Each name is represented using special start and end tokens.
+
+For example, the name `anna` is represented by the following transitions:
+
+```text
+<start> → a
+a       → n
+n       → n
+n       → a
+a       → <end>
 ```
-.
-├── data/
-│   └── names.txt        # one name per line
-├── src/
-│   └── bigram.py        # the model
-└── README.md
-```
-
-## Requirements
-
-- Python 3.8+
-- `numpy`
-- `scikit-learn`
-
-```bash
-pip install numpy scikit-learn
-```
-
-## Usage
-
-Make sure `data/names.txt` exists (one lowercase name per line), then run:
-
-```bash
-python src/bigram.py
-```
-
-Run it from the project root so the relative `data/names.txt` path resolves. The script trains the model on the training split, prints the train/test sizes, generates 10 sample names, and prints the test-set NLL.
-
-Example output:
-
-```
-Bigram Language Model
-Train dataset names:23595 Test dataset names:5899
-Generated name:pe
-Generated name:seyan
-Generated name:mele
-...
-The NLL score is: 2.4529519648377267
-```
-
-### Optional utilities
-
-These functions are included but not called by default:
-
-- **`check_probabilities(probs)`**: sanity check that the outgoing probabilities of each starting token sum to 1. Uncomment the call in `main()` to run it.
-- **`evaluation(test, probs)`**: picks a random test name and returns its probability under the model. Uncomment the loop in `main()` to run it.
-- **`generate_names(probs)`**: samples a new name from the model (called in `main()` to print sample names).
-
-  ```python
-  train, test = handle_input()
-  probs = calculate_probabilities(count_bigrams(get_pairs(train)))
-  print(generate_names(probs))
-  ```
-
-## Results
-
-| Metric | Value |
-|---|---|
-| Dataset size (unique names) | 29,494 |
-| Train / test split | 23,595 / 5,899 |
-| Test NLL (avg. per transition) | 2.453 |
-
-For reference, a model that picks uniformly among 27 possible next tokens would score an NLL of ln(27) ≈ 3.30, so the bigram model's 2.45 shows it has learned real structure from the data.
-
-**Sample generated names:**
-
-```
-pe
-aynndaniyalisirorieir
-ll
-z
-seyan
-tha
-n
-ane
-mele
-akewa
-```
-
-The samples show the typical bigram behavior: some outputs look like plausible names (`seyan`, `mele`, `akewa`), while others are too short (`z`, `n`, `ll`) or run on far too long (`aynndaniyalisirorieir`), because the model only knows the previous letter and has no sense of overall name length or structure.
-
-## Assumptions and limitations
-
-- **Lowercase a–z only.** The vocabulary is `a–z` plus `<start>` and `<end>`. A name containing uppercase letters, accents, hyphens, or spaces will raise a `KeyError` during evaluation, so clean or filter the data first.
-- **One character of context.** A bigram model only sees the previous letter, so it can't capture longer patterns like common suffixes or syllables. Generated names are often name-like but not always pronounceable.
-- **Training-set vocabulary.** Smoothing is applied over the fixed alphabet, not a vocabulary learned from the data.
-
-## The Next Step
-
-- Replacing the lookup tables with a small neural network trained on the same task
 
